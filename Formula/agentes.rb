@@ -1,8 +1,8 @@
 class Agentes < Formula
   desc "Instalador e atualizador da frota de agentes da PKI Tecnologia"
   homepage "https://github.com/pkitecnologia/homebrew-tap"
-  url "https://github.com/pkitecnologia/homebrew-tap/archive/refs/tags/v0.1.0.tar.gz"
-  sha256 "d2e9513506c7565ec1aa1cffde7b3c8b7f01ce9624e48c6920166d456abd988a"
+  url "https://github.com/pkitecnologia/homebrew-tap/archive/refs/tags/v0.2.0.tar.gz"
+  sha256 "76e26f23285aba1b92fce814036e4da0ac7d072485d57716278209579c60a5e1"
   license :cannot_represent
 
   depends_on "gh"
@@ -11,13 +11,15 @@ class Agentes < Formula
   depends_on "jq"
 
   def install
-    bin.install "bin/agentes"
+    bin.install "bin/agentes", "bin/pki"
   end
 
   def caveats
     <<~EOS
       Para instalar ou atualizar a frota de agentes, rode:
         agentes instalar
+      Depois, para abrir o maestro da frota:
+        pki
     EOS
   end
 
