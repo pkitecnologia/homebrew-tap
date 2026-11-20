@@ -2,7 +2,7 @@
 # Instalador e atualizador da frota de agentes da PKI Tecnologia.
 set -euo pipefail
 
-VERSAO="0.2.0"
+VERSAO="0.2.1"
 ORG=pkitecnologia
 REPO="$ORG/PKI-Agentes"
 MARKET=pki-agentes
@@ -130,6 +130,7 @@ instalar() {
   atalho_antigo
   passo "Pronto"
   aviso "Para abrir o maestro, numa aba do Herdr: pki"
+  aviso "Se o pki só entrar na pasta ~/PKI sem abrir o maestro, o terminal é anterior à instalação: abra uma aba nova do Herdr ou rode hash -r, e tente de novo."
   aviso "Na primeira vez, o Claude Code pergunta se confia na pasta $PKI_HOME: escolha \"Yes, I trust this folder\"."
   aviso "Quando a frota avisar de plugin novo, rode de novo: agentes instalar"
 }
