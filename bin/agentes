@@ -2,7 +2,7 @@
 # Instalador e atualizador da frota de agentes da PKI Tecnologia.
 set -euo pipefail
 
-VERSAO="0.1.0"
+VERSAO="0.2.0"
 ORG=pkitecnologia
 REPO="$ORG/PKI-Agentes"
 MARKET=pki-agentes
@@ -21,8 +21,10 @@ O que o "instalar" faz:
   - instala o Claude Code, se faltar;
   - faz o login no GitHub (gh) e configura a credencial do git;
   - cria o PKI_HOME ($PKI_HOME) com segredos/ (modo 700) e .claude/settings.json;
-  - liga a atualização automática do marketplace $MARKET;
+  - liga a atualização automática do marketplace $MARKET e o idioma português do Brasil nas sessões do PKI_HOME;
   - instala, só no PKI_HOME, todos os plugins do marketplace, inclusive os novos.
+
+Depois, para abrir o maestro: pki
 
 Programas que faltarem: brew upgrade $ORG/tap/agentes (ou brew reinstall).
 FIM
@@ -66,10 +68,11 @@ pki_home() {
   [ -s "$s" ] || echo '{}' >"$s"
   tmp="$(mktemp)"
   jq --arg m "$MARKET" --arg r "$REPO" \
-    '.extraKnownMarketplaces[$m] = ((.extraKnownMarketplaces[$m] // {}) + {source: {source: "github", repo: $r}, autoUpdate: true})' \
+    '.extraKnownMarketplaces[$m] = ((.extraKnownMarketplaces[$m] // {}) + {source: {source: "github", repo: $r}, autoUpdate: true})
+     | .language //= "português do Brasil"' \
     "$s" >"$tmp" || { rm -f "$tmp"; erro "$s não é um JSON válido; corrija o arquivo e rode de novo."; }
   mv "$tmp" "$s"
-  aviso "atualização automática do $MARKET ligada em $s."
+  aviso "atualização automática do $MARKET e idioma $(jq -r .language "$s") em $s."
 }
 
 marketplace() {
@@ -103,6 +106,15 @@ plugins() {
   fi
 }
 
+atalho_antigo() {
+  local f
+  for f in "$HOME/.zshrc" "$HOME/.zprofile" "$HOME/.bashrc" "$HOME/.bash_profile"; do
+    if [ -f "$f" ] && grep -qE "^[[:space:]]*alias[[:space:]]+pki=" "$f"; then
+      aviso "ATENÇÃO: $f tem um alias pki antigo, que esconde o comando pki do instalador. Apague a linha \"alias pki=...\" e abra um terminal novo."
+    fi
+  done
+}
+
 herdr_claude() {
   passo "Herdr"
   herdr integration install claude >/dev/null && aviso "integração do Herdr com o Claude Code instalada."
@@ -115,8 +127,10 @@ instalar() {
   marketplace
   plugins
   herdr_claude
+  atalho_antigo
   passo "Pronto"
-  aviso "Próximo passo, só na primeira vez: cd \"$PKI_HOME\" && claude \"/pki-core:preparar-operador\""
+  aviso "Para abrir o maestro, numa aba do Herdr: pki"
+  aviso "Na primeira vez, o Claude Code pergunta se confia na pasta $PKI_HOME: escolha \"Yes, I trust this folder\"."
   aviso "Quando a frota avisar de plugin novo, rode de novo: agentes instalar"
 }
 

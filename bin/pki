@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# Abre o maestro da frota de agentes da PKI no PKI_HOME.
+PKI_HOME="${PKI_HOME:-$HOME/PKI}"
+[ -d "$PKI_HOME/.claude" ] || { echo "pki: $PKI_HOME ainda não foi preparado; rode: agentes instalar" >&2; exit 1; }
+cd "$PKI_HOME" || exit 1
+exec claude --agent pki-core:pki-maestro --name pki-maestro "$@"
