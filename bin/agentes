@@ -1,0 +1,128 @@
+#!/usr/bin/env bash
+# Instalador e atualizador da frota de agentes da PKI Tecnologia.
+set -euo pipefail
+
+VERSAO="0.1.0"
+ORG=pkitecnologia
+REPO="$ORG/PKI-Agentes"
+MARKET=pki-agentes
+PKI_HOME="${PKI_HOME:-$HOME/PKI}"
+CONHECIDOS="$HOME/.claude/plugins/known_marketplaces.json"
+export CLAUDE_CODE_PLUGIN_PREFER_HTTPS=1
+
+uso() {
+  cat <<FIM
+agentes $VERSAO: frota de agentes da PKI Tecnologia
+
+uso: agentes instalar   instala ou atualiza tudo; pode rodar de novo quando quiser
+     agentes --versao
+
+O que o "instalar" faz:
+  - instala o Claude Code, se faltar;
+  - faz o login no GitHub (gh) e configura a credencial do git;
+  - cria o PKI_HOME ($PKI_HOME) com segredos/ (modo 700) e .claude/settings.json;
+  - liga a atualização automática do marketplace $MARKET;
+  - instala, só no PKI_HOME, todos os plugins do marketplace, inclusive os novos.
+
+Programas que faltarem: brew upgrade $ORG/tap/agentes (ou brew reinstall).
+FIM
+}
+
+passo() { printf '\n==> %s\n' "$*"; }
+aviso() { printf '    %s\n' "$*"; }
+erro() { printf '\nagentes: %s\n' "$*" >&2; exit 1; }
+
+programas() {
+  passo "Programas obrigatórios"
+  local c faltam=""
+  for c in gh jq git herdr; do command -v "$c" >/dev/null || faltam="$faltam $c"; done
+  [ -z "$faltam" ] || erro "faltam:$faltam. Rode: brew reinstall $ORG/tap/agentes"
+  if ! command -v claude >/dev/null; then
+    aviso "Claude Code não encontrado; instalando pelo instalador oficial."
+    curl -fsSL https://claude.ai/install.sh | bash
+    export PATH="$HOME/.local/bin:$PATH"
+    command -v claude >/dev/null || erro "Claude Code instalado, mas fora do PATH. Abra um terminal novo e rode de novo: agentes instalar"
+  fi
+  aviso "gh, jq, git, herdr e claude presentes."
+}
+
+github() {
+  passo "GitHub"
+  if ! gh auth status -h github.com >/dev/null 2>&1; then
+    aviso "Faça o login com a sua conta do GitHub."
+    gh auth login -h github.com -p https -w
+  fi
+  gh auth setup-git -h github.com
+  gh api "repos/$REPO" --jq .full_name >/dev/null 2>&1 \
+    || erro "a conta $(gh api user --jq .login 2>/dev/null) não tem acesso a $REPO. Aceite o convite da organização $ORG no GitHub (e-mail ou https://github.com/$ORG) e rode de novo: agentes instalar"
+  aviso "conta $(gh api user --jq .login) com acesso a $REPO."
+}
+
+pki_home() {
+  passo "PKI_HOME: $PKI_HOME"
+  mkdir -p "$PKI_HOME/.claude"
+  install -d -m 700 "$PKI_HOME/segredos"
+  local s="$PKI_HOME/.claude/settings.json" tmp
+  [ -s "$s" ] || echo '{}' >"$s"
+  tmp="$(mktemp)"
+  jq --arg m "$MARKET" --arg r "$REPO" \
+    '.extraKnownMarketplaces[$m] = ((.extraKnownMarketplaces[$m] // {}) + {source: {source: "github", repo: $r}, autoUpdate: true})' \
+    "$s" >"$tmp" || { rm -f "$tmp"; erro "$s não é um JSON válido; corrija o arquivo e rode de novo."; }
+  mv "$tmp" "$s"
+  aviso "atualização automática do $MARKET ligada em $s."
+}
+
+marketplace() {
+  passo "Marketplace $MARKET"
+  if [ -f "$CONHECIDOS" ] && jq -e --arg m "$MARKET" 'has($m)' "$CONHECIDOS" >/dev/null; then
+    claude plugin marketplace update "$MARKET"
+  else
+    claude plugin marketplace add "$REPO"
+  fi
+}
+
+plugins() {
+  passo "Plugins (escopo do projeto $PKI_HOME)"
+  local local_mkt catalogo p habilitados
+  local_mkt="$(jq -r --arg m "$MARKET" '.[$m].installLocation // empty' "$CONHECIDOS")"
+  catalogo="$local_mkt/.claude-plugin/marketplace.json"
+  [ -f "$catalogo" ] || erro "catálogo do marketplace não encontrado em $catalogo."
+  habilitados="$(cat "$PKI_HOME/.claude/settings.json" "$PKI_HOME/.claude/settings.local.json" 2>/dev/null \
+    | jq -rs 'map(.enabledPlugins // {}) | add // {} | to_entries[] | select(.value == true) | .key' || true)"
+  cd "$PKI_HOME"
+  for p in $(jq -r '.plugins[].name' "$catalogo"); do
+    if grep -qxF "$p@$MARKET" <<<"$habilitados"; then
+      aviso "$p: já instalado."
+    else
+      claude plugin install "$p@$MARKET" --scope project
+    fi
+  done
+  if jq -e --arg m "@$MARKET" '(.enabledPlugins // {}) | keys | any(endswith($m))' "$HOME/.claude/settings.json" >/dev/null 2>&1; then
+    aviso "ATENÇÃO: há plugins do $MARKET no escopo de usuário (~/.claude/settings.json); eles valeriam em todos os projetos."
+    aviso "Remova com: claude plugin uninstall <plugin>@$MARKET --scope user"
+  fi
+}
+
+herdr_claude() {
+  passo "Herdr"
+  herdr integration install claude >/dev/null && aviso "integração do Herdr com o Claude Code instalada."
+}
+
+instalar() {
+  programas
+  github
+  pki_home
+  marketplace
+  plugins
+  herdr_claude
+  passo "Pronto"
+  aviso "Próximo passo, só na primeira vez: cd \"$PKI_HOME\" && claude \"/pki-core:preparar-operador\""
+  aviso "Quando a frota avisar de plugin novo, rode de novo: agentes instalar"
+}
+
+case "${1:-}" in
+  instalar) instalar ;;
+  --versao|-v) echo "agentes $VERSAO" ;;
+  ""|-h|--help|ajuda) uso ;;
+  *) uso >&2; exit 2 ;;
+esac
