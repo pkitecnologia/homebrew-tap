@@ -2,12 +2,14 @@
 # Instalador e atualizador da frota de agentes da PKI Tecnologia.
 set -euo pipefail
 
-VERSAO="0.2.1"
+VERSAO="0.3.0"
 ORG=pkitecnologia
 REPO="$ORG/PKI-Agentes"
 MARKET=pki-agentes
 PKI_HOME="${PKI_HOME:-$HOME/PKI}"
 CONHECIDOS="$HOME/.claude/plugins/known_marketplaces.json"
+INSTALADOS="$HOME/.claude/plugins/installed_plugins.json"
+USUARIO="$HOME/.claude/settings.json"
 export CLAUDE_CODE_PLUGIN_PREFER_HTTPS=1
 
 uso() {
@@ -22,7 +24,9 @@ O que o "instalar" faz:
   - faz o login no GitHub (gh) e configura a credencial do git;
   - cria o PKI_HOME ($PKI_HOME) com segredos/ (modo 700) e .claude/settings.json;
   - liga a atualização automática do marketplace $MARKET e o idioma português do Brasil nas sessões do PKI_HOME;
-  - instala, só no PKI_HOME, todos os plugins do marketplace, inclusive os novos.
+  - instala no escopo de usuário todos os plugins do marketplace, inclusive os novos, e migra
+    instalações antigas do escopo de projeto;
+  - desliga os plugins da frota no ~/.claude/settings.json e liga-os só no PKI_HOME.
 
 Depois, para abrir o maestro: pki
 
@@ -84,26 +88,47 @@ marketplace() {
   fi
 }
 
+# Instalação no escopo de usuário: o Claude Code só respeita instalações de projeto no diretório inicial
+# da sessão, e as abas do pki-tarefa abrem em subpastas do PKI_HOME. Os plugins ficam desligados no
+# settings do usuário (a frota não vale em outros projetos) e ligados no do PKI_HOME e, por --settings, nas abas.
 plugins() {
-  passo "Plugins (escopo do projeto $PKI_HOME)"
-  local local_mkt catalogo p habilitados
+  passo "Plugins (escopo de usuário, ligados só no $PKI_HOME)"
+  local local_mkt catalogo p id dir ids=() ligados
   local_mkt="$(jq -r --arg m "$MARKET" '.[$m].installLocation // empty' "$CONHECIDOS")"
   catalogo="$local_mkt/.claude-plugin/marketplace.json"
   [ -f "$catalogo" ] || erro "catálogo do marketplace não encontrado em $catalogo."
-  habilitados="$(cat "$PKI_HOME/.claude/settings.json" "$PKI_HOME/.claude/settings.local.json" 2>/dev/null \
-    | jq -rs 'map(.enabledPlugins // {}) | add // {} | to_entries[] | select(.value == true) | .key' || true)"
-  cd "$PKI_HOME"
   for p in $(jq -r '.plugins[].name' "$catalogo"); do
-    if grep -qxF "$p@$MARKET" <<<"$habilitados"; then
+    id="$p@$MARKET"
+    ids+=("$id")
+    while IFS= read -r dir; do
+      [ -n "$dir" ] || continue
+      if [ -d "$dir" ] && (cd "$dir" && claude plugin uninstall "$id" --scope project >/dev/null); then
+        aviso "$p: instalação antiga de projeto em $dir removida."
+      else
+        aviso "ATENÇÃO: não foi possível remover a instalação de projeto de $p em $dir; rode lá: claude plugin uninstall $id --scope project"
+      fi
+    done < <(jq -r --arg k "$id" '.plugins[$k] // [] | .[] | select(.scope == "project") | .projectPath' "$INSTALADOS" 2>/dev/null || true)
+    if jq -e --arg k "$id" '.plugins[$k] // [] | any(.scope == "user")' "$INSTALADOS" >/dev/null 2>&1; then
       aviso "$p: já instalado."
     else
-      claude plugin install "$p@$MARKET" --scope project
+      claude plugin install "$id" --scope user
     fi
   done
-  if jq -e --arg m "@$MARKET" '(.enabledPlugins // {}) | keys | any(endswith($m))' "$HOME/.claude/settings.json" >/dev/null 2>&1; then
-    aviso "ATENÇÃO: há plugins do $MARKET no escopo de usuário (~/.claude/settings.json); eles valeriam em todos os projetos."
-    aviso "Remova com: claude plugin uninstall <plugin>@$MARKET --scope user"
-  fi
+  [ -s "$USUARIO" ] || echo '{}' >"$USUARIO"
+  ligados="$(jq -r '.enabledPlugins // {} | to_entries[] | select(.value == true) | .key' "$USUARIO" | grep -c "@$MARKET\$" || true)"
+  definir "$USUARIO" false "${ids[@]}"
+  definir "$PKI_HOME/.claude/settings.json" true "${ids[@]}"
+  [ "$ligados" -gt 0 ] && aviso "$ligados plugin(s) da frota estavam ligados em $USUARIO e foram desligados."
+  aviso "plugins desligados em $USUARIO e ligados em $PKI_HOME/.claude/settings.json."
+}
+
+definir() {
+  local arquivo="$1" valor="$2" tmp
+  shift 2
+  tmp="$(mktemp)"
+  jq --argjson v "$valor" 'reduce $ARGS.positional[] as $k (.; .enabledPlugins[$k] = $v)' "$arquivo" --args "$@" >"$tmp" \
+    || { rm -f "$tmp"; erro "$arquivo não é um JSON válido; corrija o arquivo e rode de novo."; }
+  mv "$tmp" "$arquivo"
 }
 
 atalho_antigo() {
