@@ -1,8 +1,8 @@
 class Agentes < Formula
   desc "Instalador e atualizador da frota de agentes da PKI Tecnologia"
   homepage "https://github.com/pkitecnologia/homebrew-tap"
-  url "https://github.com/pkitecnologia/homebrew-tap/archive/refs/tags/v0.2.1.tar.gz"
-  sha256 "50a2130f27b52b6f664556b3b11d340252b07c154bd611d3dc4a8fe232677e0d"
+  url "https://github.com/pkitecnologia/homebrew-tap/archive/refs/tags/v0.3.0.tar.gz"
+  sha256 "1d5c0f130cff4ef2ccf0f0736a6d006cdb6d810683712ca95ac7b5d311629337"
   license :cannot_represent
 
   depends_on "gh"
